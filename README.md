@@ -263,7 +263,7 @@ This demo is ideal for demonstrating HP ZGX Nano capabilities in:
 - **Deployed on single-GPU systems** without requiring data center infrastructure
 - **Fine-tuned for specific medical domains** using authoritative FDA and NIH data sources
 - **Operated without cloud dependencies** for organizations with strict data residency requirements
-- **Inference in real-time** with 2-3 second response times suitable for clinical workflows
+- **Inference in real-time** with 15-20 second response times fore detailed clinical workflows
 
 ## Troubleshooting
 
