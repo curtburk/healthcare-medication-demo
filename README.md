@@ -26,7 +26,9 @@ The demo translates directly to customer conversations about radiology AI, clini
 
 ## The Customer Conversation
 Opening: "Let me show you what enterprise AI looks like when it runs entirely on your hardware."
+
 During Demo: Enter common drug pairs (warfarin + aspirin, metformin + contrast dye) or use the complex patient scenarios with multiple medications. Point out the response quality and speed.
+
 Key Messages:
 
 "This model has 47 billion parameters, running locally, no cloud required"
