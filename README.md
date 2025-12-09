@@ -24,7 +24,16 @@ Regulatory requirements favor on-premises solutions
 
 The demo translates directly to customer conversations about radiology AI, clinical documentation, medical coding, pathology analysis, and any healthcare AI application requiring data sovereignty.
 
----
+## The Customer Conversation
+Opening: "Let me show you what enterprise AI looks like when it runs entirely on your hardware."
+During Demo: Enter common drug pairs (warfarin + aspirin, metformin + contrast dye) or use the complex patient scenarios with multiple medications. Point out the response quality and speed.
+Key Messages:
+
+"This model has 47 billion parameters, running locally, no cloud required"
+"The training data came from FDA and NIH sources, not internet scraping"
+"Your patient data never leaves this machine"
+
+Closing: "This is one example. The same hardware and workflow applies to any AI application where your data cannot leave your environment."
 
 ## Table of Contents
 
