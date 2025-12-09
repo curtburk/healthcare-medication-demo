@@ -32,8 +32,11 @@ During Demo: Enter common drug pairs (warfarin + aspirin, metformin + contrast d
 Key Messages:
 
 "This model has 47 billion parameters, running locally, no cloud required"
+
 "The training data came from FDA and NIH sources, not internet scraping"
+
 "Your patient data never leaves this machine"
+
 
 Closing: "This is one example. The same hardware and workflow applies to any AI application where your data cannot leave your environment."
 
