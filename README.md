@@ -1,8 +1,28 @@
 # Medical AI Drug Interaction Demo
 
-## HP ZGX Nano AI Station
+### What This Demo Is
+This demo is a fully functional AI-powered clinical decision support tool that analyzes drug interactions in real time. A user enters medications, and the system instantly returns professional-grade analysis including interaction severity, clinical mechanisms, monitoring recommendations, and alternative medication suggestions.
+The demo runs entirely on a single HP ZGX Nano workstation. No cloud connection required. No data leaves the device.
 
-A comprehensive demonstration of enterprise-grade AI capabilities for clinical drug interaction analysis, designed to showcase the HP ZGX Nano's ability to run sophisticated large language models locally without cloud dependencies.
+### What It Proves to Customers
+1. Enterprise AI runs locally on HP hardware.
+The demo uses Mixtral-8x7B, a 47-billion parameter large language model, the same class of AI that powers cloud services costing thousands per month. Customers see this running on hardware they can own and control.
+2. Sensitive data stays on-premises.
+Healthcare organizations cannot send patient medication lists to external cloud APIs due to HIPAA and data governance requirements. This demo shows AI analysis happening entirely within the customer's environment.
+3. Fine-tuning works.
+The model has been trained on authoritative medical datasets (FDA drug labels, Stanford's TWOSIDES interaction database, PubMed clinical studies). Customers see that they can customize AI models for their specific domain and data, not just use generic chatbots.
+
+
+### Why Healthcare / Drug Interactions
+Healthcare is the ideal vertical for this demonstration because:
+
+Data privacy requirements make cloud AI problematic
+Domain expertise matters (generic AI gives generic answers)
+The use case is immediately understandable (everyone takes medications)
+Clinical decision support is a real, funded market
+Regulatory requirements favor on-premises solutions
+
+The demo translates directly to customer conversations about radiology AI, clinical documentation, medical coding, pathology analysis, and any healthcare AI application requiring data sovereignty.
 
 ---
 
