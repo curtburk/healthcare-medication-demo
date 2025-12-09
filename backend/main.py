@@ -4,29 +4,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-import warnings
 import logging
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from llama_cpp import Llama
 import time
 import os
 
-warnings.filterwarnings('ignore')
-
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Model Path Definitions ---
-MODEL_PATH = "/home/curtburk/Desktop/healthcare-demo/models/finetuned-mistral-medical-MoE-7x8B"
-# Define a separate cache path for the 4-bit weights
-# The model will be saved here AFTER the first time it is quantized.
-QUANTIZED_MODEL_CACHE_PATH = "/home/curtburk/Desktop/healthcare-demo/models/finetuned-mistral-medical-MoE-7x8B_4bit_cache"
-# ------------------------------
-
 app = FastAPI(title="Medical AI Drug Interaction Demo")
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,10 +22,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files for frontend
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
-# Request models
 class SimpleDrugQuery(BaseModel):
     drug1: str
     drug2: str
@@ -50,97 +35,23 @@ class ComplexDrugQuery(BaseModel):
     lab_values: Optional[dict] = {}
     additional_context: Optional[str] = ""
 
-# Global model variables
-model = None
-tokenizer = None
-model_loaded = False
+# Load the quantized model
+model_path = "/home/curtburk/Desktop/healthcare-demo/models/medical-mixtral-q4.gguf"
+logger.info(f"Loading quantized model from: {model_path}")
 
-def load_model():
-    """Load the model, prioritizing the cached 4-bit weights."""
-    global model, tokenizer, model_loaded
-    
-    logger.info(f"Loading medical model. Checking cache path: {QUANTIZED_MODEL_CACHE_PATH}")
-    
-    try:
-        # --- Define Base Quantization Config (Used for both loading and saving) ---
-        bnb_config_base = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4", 
-            bnb_4bit_compute_dtype=torch.float16, 
-            bnb_4bit_use_double_quant=True,
-        )
+llm = Llama(
+    model_path=model_path,
+    n_gpu_layers=-1,  # Use all layers on GPU
+    n_ctx=2048,
+    n_batch=512,
+    n_threads=8,
+    verbose=False
+)
 
-        # --- 1. Check if the 4-bit CACHE EXISTS ---
-        if os.path.exists(QUANTIZED_MODEL_CACHE_PATH) and os.path.exists(os.path.join(QUANTIZED_MODEL_CACHE_PATH, "config.json")):
-            
-            logger.info("Found 4-bit cached model. Loading from cache...")
-            
-            # Load the model directly from the saved 4-bit cache path
-            model = AutoModelForCausalLM.from_pretrained(
-                QUANTIZED_MODEL_CACHE_PATH,
-                quantization_config=bnb_config_base, # Still pass the config for correct loading behavior
-                device_map="auto",
-                trust_remote_code=True,
-                low_cpu_mem_usage=True,
-                attn_implementation ="flash_attention_2"
-            )
-            
-        # --- 2. If NO cache, load and QUANTIZE/SAVE ---
-        else:
-            logger.warning(f"4-bit cache NOT found at {QUANTIZED_MODEL_CACHE_PATH}. Loading and quantizing (this will take time)...")
-
-            # Load the model from the original path and perform quantization
-            model = AutoModelForCausalLM.from_pretrained(
-                MODEL_PATH,
-                dtype=torch.float16,
-                quantization_config=bnb_config_base, 
-                device_map="auto",
-                trust_remote_code=True,
-                low_cpu_mem_usage=True,
-                attn_implementation="flash_attention_2"
-            )
-
-            # --- CRITICAL CACHING STEP ---
-            logger.info("Quantization complete. Saving 4-bit weights to cache for faster startup next time.")
-            model.save_pretrained(QUANTIZED_MODEL_CACHE_PATH)
-            # ---------------------------
-
-        # --- 3. Load Tokenizer ---
-        logger.info("Loading slow tokenizer...")
-        # Use the original path for the tokenizer, as it's just config files
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, use_fast=False) 
-        
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-        
-        # Set model to evaluation mode for faster inference
-        model.eval()
-        
-        model_loaded = True
-        logger.info("✓ Fine-tuned medical model loaded successfully!")
-        
-        # Log GPU status
-        if torch.cuda.is_available():
-            logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
-            allocated = torch.cuda.memory_allocated() / 1024**3
-            reserved = torch.cuda.memory_reserved() / 1024**3
-            logger.info(f"GPU memory - Allocated: {allocated:.2f} GB, Reserved: {reserved:.2f} GB")
-        
-    except FileNotFoundError:
-        logger.error(f"Error: Model not found at {MODEL_PATH} or {QUANTIZED_MODEL_CACHE_PATH}")
-        model_loaded = False
-    except Exception as e:
-        logger.error(f"Error loading model: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        model_loaded = False
-
-# Load model on startup
-load_model()
+logger.info("✓ Quantized medical model loaded and ready!")
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
-    """Serve the main HTML page"""
     try:
         with open("frontend/index.html", "r") as f:
             return HTMLResponse(content=f.read())
@@ -149,10 +60,6 @@ async def read_root():
 
 @app.post("/api/simple_interaction")
 async def simple_drug_interaction(query: SimpleDrugQuery):
-    """Check interaction between two drugs"""
-    if not model_loaded:
-        raise HTTPException(status_code=500, detail="Model not loaded")
-    
     try:
         prompt = f"""[INST] As a clinical pharmacist, analyze the drug interaction between {query.drug1} and {query.drug2}.
         
@@ -162,34 +69,20 @@ async def simple_drug_interaction(query: SimpleDrugQuery):
         3. Patient monitoring recommendations
         4. Alternative medications if interaction is significant
         
-        Be thorough but concise. [/INST]"""
-        
-        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
-        
-        # Move to GPU
-        inputs = {k: v.to(model.device) for k, v in inputs.items()}
+        Be concise but thorough. [/INST]"""
         
         start_time = time.time()
         
-        # Generate with optimized settings
-        with torch.cuda.amp.autocast():  # Mixed precision for speed
-            with torch.no_grad():
-                outputs = model.generate(
-                    **inputs,
-                    max_new_tokens=250,
-                    temperature=0.7,
-                    do_sample=True,
-                    top_p=0.9,
-                    pad_token_id=tokenizer.pad_token_id,
-                    eos_token_id=tokenizer.eos_token_id,
-                    use_cache=True,  # Enable KV cache
-                )
+        output = llm(
+            prompt,
+            max_tokens=512,
+            temperature=0.7,
+            top_p=0.9,
+            repeat_penalty=1.1,
+            stop=["</s>", "[INST]"]
+        )
         
-        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        # Extract only the response part
-        if "[/INST]" in response:
-            response = response.split("[/INST]")[-1].strip()
-        
+        response = output['choices'][0]['text'].strip()
         inference_time = time.time() - start_time
         
         return JSONResponse(content={
@@ -202,17 +95,12 @@ async def simple_drug_interaction(query: SimpleDrugQuery):
         })
         
     except Exception as e:
-        logger.error(f"Error processing simple interaction: {str(e)}")
+        logger.error(f"Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/complex_interaction")
 async def complex_drug_interaction(query: ComplexDrugQuery):
-    """Analyze complex multi-drug interactions with patient factors"""
-    if not model_loaded:
-        raise HTTPException(status_code=500, detail="Model not loaded")
-    
     try:
-        # Build comprehensive patient context
         medications_str = ", ".join(query.medications)
         conditions_str = ", ".join(query.conditions) if query.conditions else "None reported"
         
@@ -228,45 +116,29 @@ async def complex_drug_interaction(query: ComplexDrugQuery):
         - Current medications: {medications_str}
         - Medical conditions: {conditions_str}
         {lab_context}
-        {query.additional_context}
         
-        Provide comprehensive analysis:
-        1. All potential drug-drug interactions (rank by severity)
-        2. Drug-disease interactions
-        3. Age-related considerations
-        4. Risk stratification (calculate overall risk score)
-        5. Recommended monitoring plan with specific timeframes
-        6. Safer alternative medications if needed
-        7. Priority actions for the healthcare provider
+        Provide analysis of:
+        1. Drug-drug interactions (rank by severity)
+        2. Risk assessment
+        3. Monitoring recommendations
+        4. Priority actions
         
-        Use evidence-based medicine and be thorough but concise. [/INST]"""
-        
-        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=768)
-        
-        inputs = {k: v.to(model.device) for k, v in inputs.items()}
+        Be thorough but concise. [/INST]"""
         
         start_time = time.time()
         
-        with torch.cuda.amp.autocast():
-            with torch.no_grad():
-                outputs = model.generate(
-                    **inputs,
-                    max_new_tokens=400,
-                    temperature=0.7,
-                    do_sample=True,
-                    top_p=0.9,
-                    pad_token_id=tokenizer.pad_token_id,
-                    eos_token_id=tokenizer.eos_token_id,
-                    use_cache=True,
-                )
+        output = llm(
+            prompt,
+            max_tokens=400,
+            temperature=0.7,
+            top_p=0.9,
+            repeat_penalty=1.1,
+            stop=["</s>", "[INST]"]
+        )
         
-        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        if "[/INST]" in response:
-            response = response.split("[/INST]")[-1].strip()
-        
+        response = output['choices'][0]['text'].strip()
         inference_time = time.time() - start_time
         
-        # Calculate risk score based on factors
         risk_score = min(10, len(query.medications) * 1.5 + (query.age / 10) - 5)
         risk_level = "Low" if risk_score < 4 else "Moderate" if risk_score < 7 else "High"
         
@@ -285,27 +157,20 @@ async def complex_drug_interaction(query: ComplexDrugQuery):
         })
         
     except Exception as e:
-        logger.error(f"Error processing complex interaction: {str(e)}")
+        logger.error(f"Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint"""
     return {
         "status": "healthy",
-        "model_loaded": model_loaded,
-        "model_type": "Fine-tuned Mistral Medical MoE (4-bit Cached)",
-        "capabilities": [
-            "drug-drug interactions",
-            "polypharmacy analysis",
-            "risk stratification",
-            "clinical decision support"
-        ]
+        "model_loaded": True,
+        "model_type": "Fine-tuned Mixtral Medical (Quantized Q4)",
+        "inference_engine": "llama.cpp"
     }
 
 @app.get("/api/sample_queries")
 async def get_sample_queries():
-    """Provide sample queries for demonstration"""
     return {
         "simple_examples": [
             {"drug1": "warfarin", "drug2": "aspirin"},
